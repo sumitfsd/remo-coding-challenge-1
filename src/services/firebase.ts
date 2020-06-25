@@ -54,40 +54,60 @@ export const saveUserProfile = async (user:  IUserPublicProfile): Promise<IUserP
   }
 };
 
-export const assignSeatToUser = async (user:  IUserPublicProfile): Promise<any> => {
+export const getRoomData = async (roomId: string) => {
   const db = firebase.firestore();
-  const roomRef = db.collection('rooms').doc('theater'); 
+  const roomRef = db.collection('rooms').doc(roomId); 
   const theaterRoomSnapshot = await roomRef.get();
   const theaterRoom = theaterRoomSnapshot.data();
 
+  return theaterRoom;
+}; 
+
+export const getConfig = async () => {
+  const db = firebase.firestore();
   const configRef = db.collection('config').doc('2ifjRvQXJQx5SJDmzgoJ');
   const configSnapshot = await configRef.get();
   const config = configSnapshot.data();
 
+  return config;
+}; 
+
+const isUserAlreadySeated = (tables: ITable[], userId: string) => {
+  return tables.some((table: ITable) => table.seats.some((seat: ISeat) => seat.user === userId));
+};
+
+const getNoOfOccupiedSeats = (tables: ITable[]) => {
+  return tables.map((table: ITable) => ({
+    ...table,
+    noOfSeatsOccupied: table.seats.reduce((acc: number, cur: ISeat) => cur.user ? acc + 1 : acc, 0)
+  }));
+};
+
+const isRoomFull = (seatsStatus: ITableWithSeatStatus[], maxAllowedPerTable: number) => {
+  return seatsStatus.reduce((acc: boolean, cur: ITableWithSeatStatus) => {
+    return cur.noOfSeatsOccupied === maxAllowedPerTable && acc; 
+  }, true);
+};
+
+export const assignSeatToUser = async (user:  IUserPublicProfile): Promise<any> => {
+  const theaterRoom = await getRoomData('theater');
+  const config = await getConfig();
+
   const maxAllowedPerTable = (config && config.maxAllowedPerTable) || 6;
 
   if (theaterRoom) {
+    const { tables } = theaterRoom;
 
-    const isAlreadySeated = theaterRoom.tables.some((tables: ITable) => {
-      const isSeatedOnTable = tables.seats.some((seat: ISeat) => seat.user === user.id);
-
-      return isSeatedOnTable;
-    });
+    const isAlreadySeated = isUserAlreadySeated(tables, user.id);
 
     if (isAlreadySeated) {
       return;
     }
 
-    const seatsStatus: ITableWithSeatStatus[] = theaterRoom.tables.map((table: ITable) => ({
-      ...table,
-      noOfSeatsOccupied: table.seats.reduce((acc: number, cur: ISeat) => cur.user ? acc + 1 : acc, 0)
-    }));
-
+    const seatsStatus: ITableWithSeatStatus[] = getNoOfOccupiedSeats(tables);
     seatsStatus.sort((a, b) => a.order - b.order);
 
-    const isFull = seatsStatus.reduce((acc: boolean, cur: ITableWithSeatStatus) => {
-      return cur.noOfSeatsOccupied === maxAllowedPerTable && acc; 
-    }, true);
+    const isFull = isRoomFull(seatsStatus, maxAllowedPerTable);
 
     if (isFull) {
       return {
@@ -111,12 +131,17 @@ export const assignSeatToUser = async (user:  IUserPublicProfile): Promise<any> 
     const nextSeat: ISeat | undefined = nextTable.seats.find((seat: ISeat) => !seat.user);
      
     if (!nextSeat) {
+      console.error('Seat already occupied!', nextSeat);
+
       return;
     }
     const table = { ...nextTable };
     delete table.noOfSeatsOccupied;
 
     if (!isAlreadySeated) {
+      const db = firebase.firestore();
+      const roomRef = db.collection('rooms').doc('theater'); 
+
       const batch = db.batch();
 
       batch.update(roomRef, {
@@ -135,6 +160,124 @@ export const assignSeatToUser = async (user:  IUserPublicProfile): Promise<any> 
       await batch.commit();
     }
   }
+};
+
+const tableOccupiedByUser = (tables: ITable[], userId: string) => {
+  return tables.find((table: ITable) => (
+    table.seats.some((seat: ISeat) => {
+      return seat.user === userId;
+    }))
+  );
+};
+
+export const emptySeat = async () => {
+  const user = firebase.auth().currentUser;
+  const room = await getRoomData('theater');
+
+  if (!room || !user) {
+    console.error('Room or user not defined');
+
+    return;
+  }
+
+  const occupiedTableByUser = tableOccupiedByUser(room.tables, user.uid);
+  
+  if (occupiedTableByUser) {
+    const db = firebase.firestore();
+    const roomRef = db.collection('rooms').doc('theater'); 
+
+    const batch = db.batch();
+
+    batch.update(roomRef, {
+      tables: firebase.firestore.FieldValue.arrayRemove({
+        ...occupiedTableByUser,
+      })
+    });
+
+    batch.update(roomRef, { 
+      tables: firebase.firestore.FieldValue.arrayUnion({
+        ...occupiedTableByUser,
+        seats: occupiedTableByUser.seats.map((seat: any) => {
+          if (seat.user === user?.uid) {
+            delete seat.user;
+          }
+
+          return seat;
+        })
+      })
+    });
+
+    await batch.commit();
+  }
+};
+
+export const switchSeat = async (toTableId: string) => {
+  const user = firebase.auth().currentUser;
+  const room = await getRoomData('theater');
+  const config = await getConfig();
+
+  if (!room || !user || !config) {
+    console.error('Room or user or config not defined');
+
+    return;
+  }
+  
+  const nextTable = room.tables.find((table: ITable) => table.id === toTableId);
+  const noOfSeatsAvailable = nextTable.seats.reduce((acc: number, cur: ISeat) => {
+    return !!cur.user ? acc + 1 : acc;
+  }, 0);
+
+  const nextSeat: ISeat | undefined = nextTable.seats.find((seat: ISeat) => !seat.user);
+
+  if (!nextSeat || noOfSeatsAvailable > config.maxAllowedPerTable) {
+    console.log('Reached max. capacity!');
+
+    return;
+  }
+
+  const occupiedTableByUser = tableOccupiedByUser(room.tables, user.uid);
+
+  if (occupiedTableByUser) {
+    const db = firebase.firestore();
+    const roomRef = db.collection('rooms').doc('theater'); 
+
+    const batch = db.batch();
+
+    batch.update(roomRef, {
+      tables: firebase.firestore.FieldValue.arrayRemove({
+        ...occupiedTableByUser,
+      })
+    });
+
+    batch.update(roomRef, { 
+      tables: firebase.firestore.FieldValue.arrayUnion({
+        ...occupiedTableByUser,
+        seats: occupiedTableByUser.seats.map((seat: any) => {
+          if (seat.user === user?.uid) {
+            delete seat.user;
+          }
+
+          return seat;
+        })
+      })
+    });
+
+    batch.update(roomRef, {
+      tables: firebase.firestore.FieldValue.arrayRemove({
+        ...nextTable,
+      })
+    });
+
+    batch.update(roomRef, { 
+      tables: firebase.firestore.FieldValue.arrayUnion({
+        ...nextTable,
+        seats: nextTable.seats.map((seat: any) => seat.id === nextSeat.id ? {...seat, user: user.uid } : seat)
+      })
+    });
+
+    await batch.commit();
+  }
+
 };
 
 const getSeatsFilledPerTable = (current: number): number => {

@@ -1,23 +1,40 @@
 import * as React from 'react';
 import './index.scss'; 
-import { useFirestoreDocData, useFirestore } from 'reactfire';
+import { useFirestoreDocData, useFirestore, useUser } from 'reactfire';
+import Firebase, { emptySeat, switchSeat } from '../../services/firebase';
 import MapImage from '../../assets/conference-map.svg';
 import TableConfig from './tableConfig.json';
 import UserPic from './UserPic';
+import { deleteToken } from '../../services/tokenManager';
+import { useHistory } from 'react-router-dom';
 
 const Theater: React.FC = () => {
+  const history = useHistory();
 
   const theaterRef = useFirestore()
     .collection('rooms')
     .doc('theater');
 
+  const user: any = useUser();
+
   const theater: any = useFirestoreDocData(theaterRef, { startWithValue: [] });
+
+  const logout = async () => {
+    await emptySeat();
+    await Firebase.auth().signOut();
+    deleteToken();
+    history.push('/');
+  };
+
+  const switchSeatForUser = async (tableId: string) => {
+    await switchSeat(tableId);
+  };
 
   return ( 
     <div className='remo-theater' style={{width: TableConfig.width, height: TableConfig.height}}>
       <div className='rt-app-bar'>
-          <h2>Hi There!</h2>
-        <button>Logout</button>
+        {user && <h2>{user.displayName}</h2>}
+        <button onClick={logout}>Logout</button>
       </div>
       <div className='rt-rooms'>
         {
@@ -25,6 +42,7 @@ const Theater: React.FC = () => {
             <div
               key={table.id}
               className='rt-room'
+              onDoubleClick={() => switchSeatForUser(table.id)}
               style={{
                 width: table.width, 
                 height: table.height, 

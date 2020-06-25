@@ -9,3 +9,7 @@ export const getToken = (): string | null => {
 export const setToken = (token: string) => {
   localStorage.setItem(UID_TOKEN_KEY, token);
 };
+
+export const deleteToken = () => {
+  localStorage.removeItem(UID_TOKEN_KEY);
+};

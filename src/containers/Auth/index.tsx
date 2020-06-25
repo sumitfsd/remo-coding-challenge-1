@@ -24,7 +24,6 @@ const Auth: React.FC = () => {
         history.push('/theater');
       }
     });
-
   }, []);
 
   const redirect = () => {
