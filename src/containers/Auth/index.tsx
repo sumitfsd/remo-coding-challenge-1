@@ -1,23 +1,32 @@
 import React, { useEffect } from 'react';
-import Firebase from '../services/firebase';
+import Firebase, { saveUserProfile, assignSeatToUser } from '../../services/firebase';
 import { useHistory } from 'react-router-dom';
-import { sendGetRequest, sendPostRequest } from '../apis';
+import { setToken } from '../../services/tokenManager';
 
 const Auth: React.FC = () => {
   const history = useHistory();
 
   useEffect(() => {
-    Firebase.auth().onAuthStateChanged((user) => {
+    Firebase.auth().onAuthStateChanged(async (user) => {
       if (user) {
-        // TODO: Store user details
+
+        const userProfile = await saveUserProfile({
+          id: user.uid,
+          profilePic: user.photoURL,
+          name: user.displayName,
+        });
+
+        if (userProfile) {
+          await assignSeatToUser(userProfile);
+        }
+
+        setToken(user.uid);
         history.push('/theater');
       }
     });
 
-    // Sample API requests
-    sendGetRequest(`sample-get-request?param=1`).then(response => console.log(response));
-    sendPostRequest(`sample-post-request`, {postParam: 1}).then(response => console.log(response));
   }, []);
+
   const redirect = () => {
     const provider = new Firebase.auth.GoogleAuthProvider();
     Firebase.auth().signInWithPopup(provider);

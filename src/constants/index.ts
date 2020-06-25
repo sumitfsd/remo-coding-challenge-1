@@ -1,0 +1,1 @@
+export const UID_TOKEN_KEY = 'UID_TOKEN_KEY';

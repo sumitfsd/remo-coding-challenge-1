@@ -1,24 +1,23 @@
-import React from 'react';
-import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import React, { Suspense } from 'react';
+import { FirebaseAppProvider } from 'reactfire';
 import './App.scss';
-import Auth from './components/Auth';
-import Theater from './components/Theater';
 import { createStore } from 'redux';
 import { Provider } from 'react-redux';
 import reducers from './reducers';
+import { routes } from './routes';
+import { firebaseConfig } from './services/firebase';
 
 const store = createStore(reducers, {});
 
 const App = () => {
   return (
-    <Provider store={store}>
-      <Router>
-        <Switch>
-          <Route exact={true} path='/' component={Auth} />
-          <Route exact={true} path='/theater' component={Theater} />
-        </Switch>
-      </Router>
-    </Provider>
+    <FirebaseAppProvider firebaseConfig={firebaseConfig}>
+      <Provider store={store}>
+        <Suspense fallback={null}>
+          {routes()}
+        </Suspense>
+      </Provider>
+    </FirebaseAppProvider>
   );
 };
 
